@@ -66,7 +66,7 @@ try p = p
       -> String                 -- ^ the name to use if parsing fails
       -> Parser i a
 p <?> msg0 = Parser $ \t pos more lose succ ->
-             let lose' t' pos' more' strs msg = lose t' pos' more' (msg0:strs) msg
+             let lose' t' strength pos' more' strs msg = lose t' strength pos' more' (msg0:strs) msg
              in runParser p t pos more lose' succ
 {-# INLINE (<?>) #-}
 infix 0 <?>

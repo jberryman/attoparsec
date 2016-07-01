@@ -193,11 +193,11 @@ string_ suspended f s0 = T.Parser $ \t pos more lose succ ->
      then let t' = substring pos (Pos n) t
           in if s == f t'
              then succ t (pos + Pos n) more t'
-             else lose t pos more [] "string"
+             else lose t StrongFail pos more [] "string"
      else let t' = Buf.unsafeDrop (fromPos pos) t
           in if f t' `B.isPrefixOf` s
              then suspended s (B.drop (B.length t') s) t pos more lose succ
-             else lose t pos more [] "string"
+             else lose t StrongFail pos more [] "string"
 {-# INLINE string_ #-}
 
 stringSuspended :: (ByteString -> ByteString)
@@ -216,11 +216,11 @@ stringSuspended f s0 s t pos more lose succ =
                   then let o = Pos (B.length s0)
                        in succ' t' (pos' + o) more'
                           (substring pos' o t')
-                  else lose' t' pos' more' [] "string"
+                  else lose' t' StrongFail pos' more' [] "string"
              else if s' == B.unsafeTake n s
                   then stringSuspended f s0 (B.unsafeDrop n s)
                        t' pos' more' lose' succ'
-                  else lose' t' pos' more' [] "string"
+                  else lose' t' StrongFail pos' more' [] "string"
 
 -- | Skip past input for as long as the predicate returns 'True'.
 skipWhile :: (Word8 -> Bool) -> Parser ()
@@ -420,9 +420,9 @@ peekWord8 = T.Parser $ \t pos@(Pos pos_) more _lose succ ->
      | more == Complete ->
        succ t pos more Nothing
      | otherwise ->
-       let succ' t' pos' more' = let !w = Buf.unsafeIndex t' pos_
-                                 in succ t' pos' more' (Just w)
-           lose' t' pos' more' = succ t' pos' more' Nothing
+       let succ' t'   pos' more' = let !w = Buf.unsafeIndex t' pos_
+                                   in succ t' pos' more' (Just w)
+           lose' t' _ pos' more' = succ t' pos' more' Nothing
        in prompt t pos more lose' succ'
 {-# INLINE peekWord8 #-}
 
@@ -443,7 +443,7 @@ endOfLine = (word8 10 >> return ()) <|> (string "\r\n" >> return ())
 
 -- | Terminal failure continuation.
 failK :: Failure a
-failK t (Pos pos) _more stack msg = Fail (Buf.unsafeDrop pos t) stack msg
+failK t _strength (Pos pos) _more stack msg = Fail (Buf.unsafeDrop pos t) stack msg
 {-# INLINE failK #-}
 
 -- | Terminal success continuation.
@@ -488,8 +488,8 @@ inputSpansChunks i = T.Parser $ \t pos_ more _lose succ ->
   let pos = pos_ + Pos i
   in if fromPos pos < Buf.length t || more == Complete
      then succ t pos more False
-     else let lose' t' pos' more' = succ t' pos' more' False
-              succ' t' pos' more' = succ t' pos' more' True
+     else let lose' t' _ pos' more' = succ t' pos' more' False
+              succ' t'   pos' more' = succ t' pos' more' True
           in prompt t pos more lose' succ'
 {-# INLINE inputSpansChunks #-}
 

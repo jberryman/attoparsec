@@ -49,21 +49,21 @@ compareResults _ _ = Just False
 -- success continuation, otherwise to a failure continuation.
 prompt :: Chunk t
        => State t -> Pos -> More
-       -> (State t -> Pos -> More -> IResult t r)
+       -> (State t -> FailStrength -> Pos -> More -> IResult t r)
        -> (State t -> Pos -> More -> IResult t r)
        -> IResult t r
 prompt t pos _more lose succ = Partial $ \s ->
   if nullChunk s
-  then lose t pos Complete
+  then lose t StrongFail pos Complete
   else succ (pappendChunk t s) pos Incomplete
 {-# SPECIALIZE prompt :: State ByteString -> Pos -> More
-                      -> (State ByteString -> Pos -> More
+                      -> (State ByteString -> FailStrength -> Pos -> More
                           -> IResult ByteString r)
                       -> (State ByteString -> Pos -> More
                           -> IResult ByteString r)
                       -> IResult ByteString r #-}
 {-# SPECIALIZE prompt :: State Text -> Pos -> More
-                      -> (State Text -> Pos -> More -> IResult Text r)
+                      -> (State Text -> FailStrength -> Pos -> More -> IResult Text r)
                       -> (State Text -> Pos -> More -> IResult Text r)
                       -> IResult Text r #-}
 
@@ -72,8 +72,8 @@ prompt t pos _more lose succ = Partial $ \s ->
 demandInput :: Chunk t => Parser t ()
 demandInput = Parser $ \t pos more lose succ ->
   case more of
-    Complete -> lose t pos more [] "not enough input"
-    _ -> let lose' _ pos' more' = lose t pos' more' [] "not enough input"
+    Complete -> lose t StrongFail pos more [] "not enough input"
+    _ -> let lose' _ strength' pos' more' = lose t strength' pos' more' [] "not enough input"
              succ' t' pos' more' = succ t' pos' more' ()
          in prompt t pos more lose' succ'
 {-# SPECIALIZE demandInput :: Parser ByteString () #-}
@@ -84,10 +84,10 @@ demandInput = Parser $ \t pos more lose succ ->
 demandInput_ :: Chunk t => Parser t t
 demandInput_ = Parser $ \t pos more lose succ ->
   case more of
-    Complete -> lose t pos more [] "not enough input"
+    Complete -> lose t StrongFail pos more [] "not enough input"
     _ -> Partial $ \s ->
          if nullChunk s
-         then lose t pos Complete [] "not enough input"
+         then lose t StrongFail pos Complete [] "not enough input"
          else succ (pappendChunk t s) pos more s
 {-# SPECIALIZE demandInput_ :: Parser ByteString ByteString #-}
 {-# SPECIALIZE demandInput_ :: Parser Text Text #-}
@@ -100,8 +100,8 @@ wantInput = Parser $ \t pos more _lose succ ->
   case () of
     _ | pos < atBufferEnd (undefined :: t) t -> succ t pos more True
       | more == Complete -> succ t pos more False
-      | otherwise       -> let lose' t' pos' more' = succ t' pos' more' False
-                               succ' t' pos' more' = succ t' pos' more' True
+      | otherwise       -> let lose' t' _ pos' more' = succ t' pos' more' False
+                               succ' t' pos' more'   = succ t' pos' more' True
                            in prompt t pos more lose' succ'
 {-# INLINE wantInput #-}
 
@@ -109,11 +109,11 @@ wantInput = Parser $ \t pos more _lose succ ->
 endOfInput :: forall t . Chunk t => Parser t ()
 endOfInput = Parser $ \t pos more lose succ ->
   case () of
-    _| pos < atBufferEnd (undefined :: t) t -> lose t pos more [] "endOfInput"
+    _| pos < atBufferEnd (undefined :: t) t -> lose t StrongFail pos more [] "endOfInput"
      | more == Complete -> succ t pos more ()
      | otherwise ->
-       let lose' t' pos' more' _ctx _msg = succ t' pos' more' ()
-           succ' t' pos' more' _a = lose t' pos' more' [] "endOfInput"
+       let lose' t' _ pos' more' _ctx _msg = succ t' pos' more' ()
+           succ' t' pos' more' _a          = lose t' StrongFail pos' more' [] "endOfInput"
        in  runParser demandInput t pos more lose' succ'
 {-# SPECIALIZE endOfInput :: Parser ByteString () #-}
 {-# SPECIALIZE endOfInput :: Parser Text () #-}
@@ -135,7 +135,7 @@ satisfySuspended p t pos more lose succ =
   where go = Parser $ \t' pos' more' lose' succ' ->
           case bufferElemAt (undefined :: t) pos' t' of
             Just (e, l) | p e -> succ' t' (pos' + Pos l) more' e
-                        | otherwise -> lose' t' pos' more' [] "satisfyElem"
+                        | otherwise -> lose' t' StrongFail pos' more' [] "satisfyElem"
             Nothing -> runParser (demandInput >> go) t' pos' more' lose' succ'
 {-# SPECIALIZE satisfySuspended :: (ChunkElem ByteString -> Bool)
                                 -> State ByteString -> Pos -> More
@@ -158,7 +158,7 @@ satisfyElem :: forall t . Chunk t
 satisfyElem p = Parser $ \t pos more lose succ ->
     case bufferElemAt (undefined :: t) pos t of
       Just (e, l) | p e -> succ t (pos + Pos l) more e
-                  | otherwise -> lose t pos more [] "satisfyElem"
+                  | otherwise -> lose t StrongFail pos more [] "satisfyElem"
       Nothing -> satisfySuspended p t pos more lose succ
 {-# INLINE satisfyElem #-}
 

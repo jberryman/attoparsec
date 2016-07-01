@@ -15,6 +15,7 @@
 module Data.Attoparsec.Internal.Types
     (
       Parser(..)
+    , FailStrength(..)
     , State
     , Failure
     , Success
@@ -119,7 +120,10 @@ type family State i
 type instance State ByteString = B.Buffer
 type instance State Text = T.Buffer
 
-type Failure i t   r = t -> Pos -> More -> [String] -> String
+data FailStrength = WeakFail | StrongFail
+                  deriving (Eq, Ord, Show)
+
+type Failure i t   r = t -> FailStrength -> Pos -> More -> [String] -> String
                        -> IResult i r
 type Success i t a r = t -> Pos -> More -> a -> IResult i r
 
@@ -152,17 +156,26 @@ instance Monad (Parser i) where
 
 
 instance Fail.MonadFail (Parser i) where
-    fail err = Parser $ \t pos more lose _succ -> lose t pos more [] msg
+    fail err = Parser $ \t pos more lose _succ -> lose t StrongFail pos more [] msg
       where msg = "Failed reading: " ++ err
     {-# INLINE fail #-}
 
+weakFail :: String -> Parser i a
+weakFail err = Parser $ \t pos more lose _succ -> lose t WeakFail pos more [] msg
+  where msg = "Failed reading: " ++ err
+{-# INLINE weakFail #-}
+
 plus :: Parser i a -> Parser i a -> Parser i a
 plus f g = Parser $ \t pos more lose succ ->
-  let lose' t' _pos' more' _ctx _msg = runParser g t' pos more' lose succ
+  let lose' t' strength' pos' more' ctx' msg' =
+          let lose'' t'' strength'' pos'' more'' ctx'' msg''
+                | strength' < strength'' = lose t'' strength'' pos'' more'' ctx'' msg''
+                | otherwise              = lose t'  strength'  pos'  more'  ctx'  msg'
+          in runParser g t' pos more' lose'' succ
   in runParser f t pos more lose' succ
 
 instance MonadPlus (Parser i) where
-    mzero = fail "mzero"
+    mzero = weakFail "mzero"
     {-# INLINE mzero #-}
     mplus = plus
 
@@ -194,13 +207,13 @@ instance Semigroup (Parser i a) where
     {-# INLINE (<>) #-}
 
 instance Monoid (Parser i a) where
-    mempty  = fail "mempty"
+    mempty  = weakFail "mempty"
     {-# INLINE mempty #-}
     mappend = (<>)
     {-# INLINE mappend #-}
 
 instance Alternative (Parser i) where
-    empty = fail "empty"
+    empty = weakFail "empty"
     {-# INLINE empty #-}
 
     (<|>) = plus
