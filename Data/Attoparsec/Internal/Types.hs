@@ -43,6 +43,7 @@ import Prelude hiding (succ)
 import qualified Data.Attoparsec.ByteString.Buffer as B
 import qualified Data.Attoparsec.Text.Buffer as T
 
+-- | Position(?) in code units (afaict)
 newtype Pos = Pos { fromPos :: Int }
             deriving (Eq, Ord, Show, Num)
 

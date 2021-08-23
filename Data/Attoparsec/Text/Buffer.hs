@@ -34,7 +34,7 @@ module Data.Attoparsec.Text.Buffer
     , iter
     , iter_
     , substring
-    , dropWord16
+    , dropWord8
     ) where
 
 import Control.Exception (assert)
@@ -44,9 +44,7 @@ import Data.Monoid as Mon (Monoid(..))
 import Data.Semigroup (Semigroup(..))
 import Data.Text ()
 import Data.Text.Internal (Text(..))
-import Data.Text.Internal.Encoding.Utf16 (chr2)
-import Data.Text.Internal.Unsafe.Char (unsafeChr)
-import Data.Text.Unsafe (Iter(..))
+import Data.Text.Unsafe (Iter(..), iterArray)
 import Foreign.Storable (sizeOf)
 import GHC.Exts (Int(..), indexIntArray#, unsafeCoerce#, writeIntArray#)
 import GHC.ST (ST(..), runST)
@@ -100,7 +98,7 @@ pappend buf (Text arr off len) = append buf arr off len
 
 append :: Buffer -> A.Array -> Int -> Int -> Buffer
 append (Buf arr0 off0 len0 cap0 gen0) !arr1 !off1 !len1 = runST $ do
-  let woff    = sizeOf (0::Int) `shiftR` 1
+  let woff    = sizeOf (0::Int) 
       newlen  = len0 + len1
       !gen    = if gen0 == 0 then 0 else readGen arr0
   if gen == gen0 && newlen <= cap0
@@ -108,7 +106,7 @@ append (Buf arr0 off0 len0 cap0 gen0) !arr1 !off1 !len1 = runST $ do
       let newgen = gen + 1
       marr <- unsafeThaw arr0
       writeGen marr newgen
-      A.copyI marr (off0+len0) arr1 off1 (off0+newlen)
+      A.copyI marr (off0+len0) arr1 off1 len1
       arr2 <- A.unsafeFreeze marr
       return (Buf arr2 off0 newlen cap0 newgen)
     else do
@@ -116,8 +114,8 @@ append (Buf arr0 off0 len0 cap0 gen0) !arr1 !off1 !len1 = runST $ do
           newgen = 1
       marr <- A.new (newcap + woff)
       writeGen marr newgen
-      A.copyI marr woff arr0 off0 (woff+len0)
-      A.copyI marr (woff+len0) arr1 off1 (woff+newlen)
+      A.copyI marr woff arr0 off0 len0
+      A.copyI marr (woff+len0) arr1 off1 len1
       arr2 <- A.unsafeFreeze marr
       return (Buf arr2 woff newlen newcap newgen)
 
@@ -132,31 +130,24 @@ substring s l (Buf arr off len _ _) =
   Text arr (off+s) l
 {-# INLINE substring #-}
 
-dropWord16 :: Int -> Buffer -> Text
-dropWord16 s (Buf arr off len _ _) =
+dropWord8 :: Int -> Buffer -> Text
+dropWord8 s (Buf arr off len _ _) =
   assert (s >= 0 && s <= len) $
   Text arr (off+s) (len-s)
-{-# INLINE dropWord16 #-}
+{-# INLINE dropWord8 #-}
 
 -- | /O(1)/ Iterate (unsafely) one step forwards through a UTF-16
 -- array, returning the current character and the delta to add to give
 -- the next offset to iterate at.
 iter :: Buffer -> Int -> Iter
-iter (Buf arr off _ _ _) i
-    | m < 0xD800 || m > 0xDBFF = Iter (unsafeChr m) 1
-    | otherwise                = Iter (chr2 m n) 2
-  where m = A.unsafeIndex arr j
-        n = A.unsafeIndex arr k
-        j = off + i
-        k = j + 1
+iter (Buf arr off _ _ _) i = iterArray arr (off+i)
 {-# INLINE iter #-}
 
 -- | /O(1)/ Iterate one step through a UTF-16 array, returning the
 -- delta to add to give the next offset to iterate at.
 iter_ :: Buffer -> Int -> Int
-iter_ (Buf arr off _ _ _) i | m < 0xD800 || m > 0xDBFF = 1
-                                | otherwise                = 2
-  where m = A.unsafeIndex arr (off+i)
+iter_ b i = case iter b i of
+              Iter _ l -> l
 {-# INLINE iter_ #-}
 
 unsafeThaw :: A.Array -> ST s (A.MArray s)
